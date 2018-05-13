@@ -60,7 +60,9 @@ example_text <- tweet_data$text[1]
 
 quanteda::tokens(example_text, "word")
 
-tokens(example_text, "sentence")
+quanteda::tokens(example_text, "word", ngrams = 2)
+
+quanteda::tokens(example_text, "sentence")
 
 
 ### create text corpus
@@ -73,7 +75,7 @@ summary(corpus_subset(tweet_corpus, date > as_date('2016-07-01')), n =nrow(tweet
 kwic(tweet_corpus, "terror")
 kwic(tweet_corpus, "immigrant*")
 kwic(tweet_corpus, "famil*")
-kwic(tweet_corpus, "amp") #ampersands!
+kwic(tweet_corpus, "thank")
 
 
 ## exploratory data vis ####
@@ -201,6 +203,10 @@ test_dfm <- dfm_select(test_dfm, train_dfm)
 nb_model <- quanteda::textmodel_nb(train_dfm, train_labels)
 nb_preds <- predict(nb_model, test_dfm) 
 
+# Accuracy
+print(mean(nb_preds$nb.predicted == test_labels))
+
+### LIME on correct model results ####
 
 # compare predictions to actual label
 predictions_tbl <- data.frame(predict_label = nb_preds$nb.predicted,
@@ -262,3 +268,4 @@ corr_explanation[1:10, 1:10]
 
 # explanation vis
 plot_features(corr_explanation)
+
