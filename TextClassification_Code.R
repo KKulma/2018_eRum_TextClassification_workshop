@@ -73,6 +73,10 @@ summary(corpus_subset(tweet_corpus, date > as_date('2016-07-01')), n =nrow(tweet
 
 # checking context of a chosen word 
 kwic(tweet_corpus, "terror")
+
+# one way of checking who the text refers to...
+corpus_subset(tweet_corpus, author == "realDonaldTrump")["text340"]
+
 kwic(tweet_corpus, "immigrant*")
 kwic(tweet_corpus, "famil*")
 kwic(tweet_corpus, "thank")
@@ -130,7 +134,11 @@ tweet_summary_tbl2 %>%
 
 # create DFM
 my_dfm <- dfm(tweet_corpus)
-my_dfm[1:10, 1:5]
+my_dfm[1:10, 1:10]
+
+# example of dfm with bi-grams only
+my_dfm2 <- dfm(tweet_corpus, ngrams = 2)
+my_dfm2[1:10, 1:20]
 
 # top features 
 topfeatures(my_dfm, 50)
@@ -174,7 +182,8 @@ textplot_wordcloud(by_author_dfm,
 # wrapping-up text preprocessing in one function
 get_matrix <- function(df){
   corpus <- quanteda::corpus(df)
-  dfm <- quanteda::dfm(corpus, remove_url = TRUE, remove_punct = TRUE,     remove = stopwords("english"))
+  #dfm <- quanteda::dfm(corpus, tolower = TRUE, stem = TRUE, remove = c(stopwords("english"), "will"), ngrams = 1:2)
+  dfm <- quanteda::dfm(corpus, remove_url = TRUE, remove_punct = TRUE, remove = stopwords("english"))
 }
 
 
@@ -198,6 +207,8 @@ test_labels <- tweet_data$author[-as.vector(trainIndex)] == "realDonaldTrump"
 #### make sure that train & test sets have exactly same features
 test_dfm <- dfm_select(test_dfm, train_dfm)
 
+# check that the train and test set have the same 
+all(train_dfm@Dimnames$features == test_dfm@Dimnames$features)
 
 ### Naive Bayes model using quanteda::textmodel_nb ####
 nb_model <- quanteda::textmodel_nb(train_dfm, train_labels)
@@ -222,6 +233,11 @@ predictions_tbl <- data.frame(predict_label = nb_preds$nb.predicted,
 # select only correct predictions
 correct_pred <- predictions_tbl %>%
   filter(actual_label == predict_label) 
+
+## check if correct tweet numbers agree with total accuracy
+str(correct_pred)
+str(train_raw)
+nrow(correct_pred)/length(test_labels) # they do!
 
 # pick a sample of tweets for explainer 
 tweets_to_explain <- test_raw %>%
@@ -263,9 +279,14 @@ corr_explanation <- lime::explain(tweets_to_explain$text,
                                   verbose = 0)
 
 #sneak peak into the explanations 
-corr_explanation[1:10, 1:10]
+str(corr_explanation)
+corr_explanation[1:8, 1:9] # explanations for Hlary
+corr_explanation[c(9:12, 21:24), 1:9] # wxplanations for Trump
 
 
-# explanation vis
+# explanation visualization
 plot_features(corr_explanation)
 
+
+# text explanation
+plot_text_explanations(corr_explanation)
