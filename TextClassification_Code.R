@@ -1,22 +1,23 @@
 ################################################################################################
-# Building an Interpretable NLP model to classify tweets Workshop
+# Building an Interpretable NLP model to classify Trump & Clinton tweets Workshop
 # full code 
 # eRum 2018, Budapest 
 ################################################################################################
 
 
-# load packages ####
+### loading packages ####
+
 library(readr)
-library(quanteda)
 library(dplyr)
 library(stringr)
 library(lubridate)
 library(ggplot2)
+library(quanteda)
 library(lime)
-#library(glmnet) #There is a glmnet model commented out below
 
+theme_set(theme_minimal()) # a bit biased preference...
 
-## load data ####
+#data prep
 tweet_csv <- read_csv("tweets.csv")
 str(tweet_csv, give.attr = FALSE)
 
@@ -27,6 +28,7 @@ table(tweet_csv$handle)
 table(tweet_csv$handle, tweet_csv$is_retweet)
 table(tweet_csv$lang)
 table(tweet_csv$handle, tweet_csv$lang)
+
 
 
 ### data cleaning ####
@@ -43,6 +45,7 @@ tweet_data <- tweet_csv %>%
          tweet_num = row_number()) %>% 
   select(-timestamp)
 
+
 str(tweet_data)
 
 #show the non-lengthy columns
@@ -57,11 +60,12 @@ example_text <- tweet_data$text[1]
 
 quanteda::tokens(example_text, "word")
 
-tokens(example_text, "sentence")
+quanteda::tokens(example_text, "word", ngrams = 2)
+
+quanteda::tokens(example_text, "sentence")
 
 
 ### create text corpus
-#tweet_corpus <- corpus(tweet_csv$text)
 tweet_corpus <- corpus(tweet_data)
 
 # example: corpus object is easy to subset in order to get partial data
@@ -71,7 +75,7 @@ summary(corpus_subset(tweet_corpus, date > as_date('2016-07-01')), n =nrow(tweet
 kwic(tweet_corpus, "terror")
 kwic(tweet_corpus, "immigrant*")
 kwic(tweet_corpus, "famil*")
-kwic(tweet_corpus, "amp") #ampersands!
+kwic(tweet_corpus, "thank")
 
 
 ## exploratory data vis ####
@@ -167,77 +171,44 @@ textplot_wordcloud(by_author_dfm,
 
 #### modelling- split train and test, model and predict ####
 
+# wrapping-up text preprocessing in one function
+get_matrix <- function(df){
+  corpus <- quanteda::corpus(df)
+  dfm <- quanteda::dfm(corpus, remove_url = TRUE, remove_punct = TRUE,     remove = stopwords("english"))
+}
+
+
 #### separate the train and test set ####
 
 # splitting data into train & text
 # usually we would use caret for balanced, but it is a large package for a workshop 
 set.seed(32984)
-trainIndex <- sample.int(n = nrow(tweet_csv), size = floor(.8*nrow(tweet_csv)), replace = F)
-
-
-
-get_matrix <- function(df){
-  corpus <- quanteda::corpus(df)
-  dfm <- quanteda::dfm(corpus, remove_url = TRUE, remove_punct = TRUE, remove = stopwords("english"))
-}
-
-
+trainIndex <- sample.int(n = nrow(tweet_data), 
+                         size = floor(.8*nrow(tweet_data)), replace = F)
 
 train_dfm <- get_matrix(tweet_data$text[trainIndex])
-
-#train_dfm <- edited_dfm[as.vector(trainIndex), ]
 train_raw <- tweet_data[, c("text", "tweet_num")][as.vector(trainIndex), ]
 train_labels <- tweet_data$author[as.vector(trainIndex)] == "realDonaldTrump"
-table(train_labels)
-
 
 test_dfm <- get_matrix(tweet_data$text[-trainIndex])
-#test_dfm <- edited_dfm[-as.vector(trainIndex), ]
 test_raw <- tweet_data[, c("text", "tweet_num")][-as.vector(trainIndex), ]
 test_labels <- tweet_data$author[-as.vector(trainIndex)] == "realDonaldTrump"
-table(test_labels)
+
 
 #### make sure that train & test sets have exactly same features
 test_dfm <- dfm_select(test_dfm, train_dfm)
 
-# check that the train and test set have the same 
-all(train_dfm@Dimnames$features == test_dfm@Dimnames$features)
-
-#train_author <- ifelse(tweet_csv$handle[ as.vector(trainIndex)] =="realDonaldTrump", 1, 0)
-#test_author <- ifelse(tweet_csv$handle[ -as.vector(trainIndex)] =="realDonaldTrump", 1, 0)
-
-#length(train_author) == train_tweets@Dim[1]
-#length(test_author) == test_tweets@Dim[1]
-
-#table(train_author)
-
-
-#### train the classification model ####
-
 
 ### Naive Bayes model using quanteda::textmodel_nb ####
 nb_model <- quanteda::textmodel_nb(train_dfm, train_labels)
-nb_preds <- predict(nb_model, test_dfm) #> 0.5
+nb_preds <- predict(nb_model, test_dfm) 
 
 # Accuracy
 print(mean(nb_preds$nb.predicted == test_labels))
 
+### LIME on correct model results ####
 
-
-# bonus: glmnet ####
-#set.seed(1234)
-#glm_model <- glmnet(train_dfm, train_label, family = "binomial")
-
-# We use a (standard) threshold of 0.5
-#glm_preds <- predict(glm_model, test_dfm) > 0.5
-
-# Accuracy
-#print(mean(glm_preds == test_label))
-
-
-### LIME on Naive Bayes model ####
-
-# select only correct predictions
+# compare predictions to actual label
 predictions_tbl <- data.frame(predict_label = nb_preds$nb.predicted,
                               actual_label = test_labels,
                               tweet_name = rownames(nb_preds$posterior.prob)
@@ -246,39 +217,30 @@ predictions_tbl <- data.frame(predict_label = nb_preds$nb.predicted,
            as.integer(
              str_trim(
                str_replace_all(tweet_name, "text", ""))
-         )) 
+           )) 
 
-
+# select only correct predictions
 correct_pred <- predictions_tbl %>%
   filter(actual_label == predict_label) 
 
-
-## check if correct tweet numbers agree with total accuracy
-str(correct_pred)
-str(train_raw)
-nrow(correct_pred)/length(test_labels) # they do!
-
-
-
+# pick a sample of tweets for explainer 
 tweets_to_explain <- test_raw %>%
   filter(tweet_num %in% correct_pred$tweet_num) %>% 
-#  select(text) %>% 
   head(6)
 
 
-
-### change setting of quanteda model so that it can fed into LIME 
+# check the model type
 class(nb_model)
 
-model_type.textmodel_nb_fitted <- function(x, ...) {
+### set up correct model class and predict functions 
+
+model_type.textmodel_nb <- function(x, ...) {
   return("classification")
 }
 
 
-# have to modify the textmodel_nb_fitted so that the features are the same
-
-predict_model.textmodel_nb_fitted <- function(x, newdata, type, ...) {
-  X <- dfm_select(dfm(newdata), x$data$x)   
+predict_model.textmodel_nb <- function(x, newdata, type, ...) {
+  X <- dfm_select(dfm(newdata), x$x)   
   res <- predict(x, newdata = X, ...)
   switch(
     type,
@@ -287,14 +249,12 @@ predict_model.textmodel_nb_fitted <- function(x, newdata, type, ...) {
   )  
 }
 
-
-### build the explainer 
+### run the explainer 
 explainer <- lime(train_raw$text, 
                   model = nb_model,
                   preprocess = get_matrix) 
 
 
-# get explanations
 corr_explanation <- lime::explain(tweets_to_explain$text, 
                                   explainer, 
                                   n_labels = 1,
@@ -302,10 +262,10 @@ corr_explanation <- lime::explain(tweets_to_explain$text,
                                   cols = 2,
                                   verbose = 0)
 
+#sneak peak into the explanations 
+corr_explanation[1:10, 1:10]
 
-# view explanation table
-corr_explanation[1:5, 1:5]
 
+# explanation vis
 plot_features(corr_explanation)
-
 
