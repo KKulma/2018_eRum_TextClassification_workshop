@@ -227,14 +227,14 @@ tweets_to_explain <- test_raw %>%
 class(nb_model)
 
 ### set up correct model class and predict functions 
-model_type.textmodel_nb_fitted <- function(x, ...) {
+
+model_type.textmodel_nb <- function(x, ...) {
   return("classification")
 }
 
 
-# have to modify the textmodel_nb_fitted so that is accepted by LIME
-predict_model.textmodel_nb_fitted <- function(x, newdata, type, ...) {
-  X <- dfm_select(dfm(newdata), x$data$x)   
+predict_model.textmodel_nb <- function(x, newdata, type, ...) {
+  X <- dfm_select(dfm(newdata), x$x)   
   res <- predict(x, newdata = X, ...)
   switch(
     type,
